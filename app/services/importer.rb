@@ -12,8 +12,8 @@ class Importer
     @feed = feed
 
     @record = Record.new(source_url: @feed[:url], feed: @feed)
-    @record.load_rss_data
-    @record.convert_rss_to_hash
+    @record.load_json_data
+    @record.convert_json_to_hash
     send_json_to_server
   end
 

@@ -1,0 +1,59 @@
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  QUANTUM_CLI: registry.internal.planetary-networks.de/quantum-public/cli:2
+  QUANTUM_ENDPOINT: portainer-14
+  HOST: portainer-14.docker.planetary-networks.de
+  STACK: json-importer
+
+stages:
+  - build
+  - predeploy
+  - deploy
+
+services:
+  - docker:19.03.0-dind
+
+before_script:
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+
+build:
+  stage: build
+  tags:
+    - gitlab-drone
+  variables:
+    IMAGE: $CI_REGISTRY_IMAGE
+    DOCKERFILE: Dockerfile
+  script:
+    - docker pull $IMAGE:latest || true
+    - docker build --cache-from $IMAGE:latest --tag $IMAGE:$CI_COMMIT_SHA --tag $IMAGE:latest -f $DOCKERFILE .
+    - docker push $IMAGE:$CI_COMMIT_SHA
+    - docker push $IMAGE:latest
+
+conf:
+  stage: predeploy
+  tags:
+    - gitlab-drone
+  image:
+    name: docker/compose:1.25.0
+  cache:
+    key: "${CI_PIPELINE_ID}"
+    paths:
+      - quantum.yaml
+  script:
+    - docker-compose -f docker-compose.yml -f stack.yml config > quantum.yaml
+  only:
+    - master
+
+deploy:
+  stage: deploy
+  tags:
+    - gitlab-drone
+  image: $QUANTUM_CLI
+  cache:
+    key: "${CI_PIPELINE_ID}"
+    paths:
+      - quantum.yaml
+  script:
+    - quantum-cli stack update --create --wait --stack $STACK
+  only:
+    - master

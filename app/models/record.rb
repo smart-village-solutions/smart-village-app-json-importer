@@ -11,7 +11,7 @@ class Record < ApplicationRecord
     super
   end
 
-  def load_rss_data
+  def load_json_data
     result = ApiRequestService.new(source_url).get_request(false)
 
     return unless result.code == "200"
@@ -24,12 +24,11 @@ class Record < ApplicationRecord
     hash_data.to_json
   end
 
-  def convert_rss_to_hash
+  def convert_json_to_hash
     news_data = []
-    @xml_doc = Nokogiri.XML(xml_data)
-    @xml_doc.remove_namespaces!
-    @xml_doc.xpath("//item").each do |xml_item|
-      news_data << parse_single_news_from_xml(xml_item)
+    raw_json_data = JSON.parse(xml_data)
+    raw_json_data.each do |json_item|
+      news_data << parse_single_news_from_json(json_item)
     end
 
     self.json_data = { news: news_data }
@@ -37,94 +36,70 @@ class Record < ApplicationRecord
 
   private
 
-    def parse_single_news_from_xml(xml_item)
+    # json_item =
+    #   {
+    #   "image"=> [
+    #     {
+    #       source_url: "https://www.eisenhuettenstadt.de/media/custom/2852_2678_1_m.PNG?1591882344"
+    #     }
+    #   ],
+    #   "title" => "Startschuss für das 7. Eisenhüttenstädter »Ferien-Diplom«",
+    #   "content"=> "Eisenhüttenstadt. Nach einem ungewöhnlichen Schulhalbjahr können sich Eisenhüttenstädter Kinder im Alter von 8 bis 12 Jahren nun wieder auf etwas Normalität und Ablenkung freuen: ... Mehr",
+    #   "date"=> "2020-11-06 00:00:00",
+    #   "url"=>"https://www.eisenhuettenstadt.de/Stadt-Verwaltung/Aktuelles/Pressemitteilungen"
+    #   }
+    #
+    def parse_single_news_from_json(json_item)
       {
-        external_id: parse_content_external_id(xml_item),
-        author: parse_author(xml_item),
+        external_id: load_from_feed_definition(:external_id, json_item),
+        author: load_from_feed_definition(:author, json_item),
         full_version: false,
-        news_type: "news",
-        publication_date: publication_date(xml_item),
-        published_at: publication_date(xml_item),
+        news_type: feed[:import][:news_type],
+        publication_date: load_from_feed_definition(:date, json_item),
+        published_at: load_from_feed_definition(:date, json_item),
         source_url: {
-          url: xml_item.at_xpath("link").try(:text),
+          url: load_from_feed_definition(:url, json_item),
           description: "source url of original article"
         },
         contentBlocks: [
           {
-            title: parse_content_title(xml_item),
-            intro: parse_content_intro(xml_item),
-            body: parse_content_body(xml_item),
-            media_contents: media_contents(xml_item)
+            title: load_from_feed_definition(:title, json_item),
+            intro: load_from_feed_definition(:intro, json_item),
+            body: load_from_feed_definition(:body, json_item),
+            media_contents: media_contents(json_item)
           }
         ]
       }
     end
 
-    def media_contents(xml_item)
+    def load_from_feed_definition(json_key, json_item)
+      defined_json_key = feed[:import].dig(*json_key)
+      return "" if defined_json_key.blank?
+
+      json_item.dig(defined_json_key)
+    end
+
+    def media_contents(json_item)
       return [] if feed[:import][:images].blank?
       return [] if feed[:import][:images] == false
+      return [] if feed[:import][:images][:image_tag].blank?
 
       media = []
-      xml_item.xpath(feed[:import][:images][:image_tag]).each do |image_item|
+      json_item.fetch(feed[:import][:images][:image_tag], []).each do |image_item|
         image_data = {
           content_type: "image",
-          copyright: image_item.at_xpath(feed[:import][:images][:copyright]).try(:text),
-          caption_text: image_item.at_xpath(feed[:import][:images][:caption_text]).try(:text),
-          width: image_item.at_xpath(feed[:import][:images][:width]).try(:text).to_i,
-          height: image_item.at_xpath(feed[:import][:images][:height]).try(:text).to_i,
+          copyright: load_from_feed_definition([:images, :copyright], image_item),
+          caption_text: load_from_feed_definition([:images, :caption_text], image_item),
+          width: load_from_feed_definition([:images, :width], image_item).to_i,
+          height: load_from_feed_definition([:images, :height], image_item).to_i,
           source_url: {
-            url: image_item.at_xpath(feed[:import][:images][:source_url]).try(:text)
+            url: load_from_feed_definition([:images, :source_url], image_item)
           }
         }
         media << image_data
       end
 
       media.compact.flatten
-    end
-
-    def publication_date(xml_item)
-      xml_item.at_xpath("pubDate").try(:text).presence || xml_item.at_xpath("date").try(:text)
-    end
-
-    # Content ist meinst in folgenden Stellen im RSS,
-    # wird nun aber dynamisch in den Settings pro Feed definiert
-    #
-    # xml_item.at_xpath("content").try(:text).presence ||
-    # xml_item.at_xpath("encoded").try(:text).presence ||
-    # xml_item.at_xpath("description").try(:text)
-    def parse_content_intro(xml_item)
-      return nil if feed[:import][:intro].blank?
-      return nil if feed[:import][:intro] == false
-
-      xml_item.at_xpath(feed[:import][:intro]).try(:text)
-    end
-
-    def parse_content_body(xml_item)
-      return nil if feed[:import][:body].blank?
-      return nil if feed[:import][:body] == false
-
-      xml_item.at_xpath(feed[:import][:body]).try(:text)
-    end
-
-    def parse_content_external_id(xml_item)
-      return nil if feed[:import][:external_id].blank?
-      return nil if feed[:import][:external_id] == false
-
-      xml_item.at_xpath(feed[:import][:external_id]).try(:text)
-    end
-
-    def parse_content_title(xml_item)
-      return xml_item.at_xpath("title").try(:text) if feed[:import][:title].blank?
-
-      xml_item.at_xpath(feed[:import][:title]).try(:text)
-    end
-
-    def parse_author(xml_item)
-      begin
-        xml_item.at_xpath("creator").try(:text).presence || xml_item.at_xpath("owner").try(:text)
-      rescue Nokogiri::XML::XPath::SyntaxError
-        ""
-      end
     end
 end
 
