@@ -284,7 +284,6 @@ DEPENDENCIES
   guard-rspec
   linter!
   listen (>= 3.0.5, < 3.2)
-  nokogiri
   pg (>= 0.18, < 2.0)
   puma (~> 3.11)
   rails (~> 6.0.0.rc1)
@@ -304,4 +303,4 @@ RUBY VERSION
    ruby 2.6.3p62
 
 BUNDLED WITH
-   2.0.1
+   2.0.2
