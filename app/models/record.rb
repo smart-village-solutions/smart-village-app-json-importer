@@ -76,30 +76,26 @@ class Record < ApplicationRecord
       defined_json_key = feed[:import].dig(*json_key)
       return "" if defined_json_key.blank?
 
-      json_item.dig(defined_json_key)
+      result = json_item.dig(defined_json_key)
+      return result.first if result.class == Array
+
+      result
     end
 
     def media_contents(json_item)
       return [] if feed[:import][:images].blank?
       return [] if feed[:import][:images] == false
-      return [] if feed[:import][:images][:image_tag].blank?
 
-      media = []
-      json_item.fetch(feed[:import][:images][:image_tag], []).each do |image_item|
-        image_data = {
-          content_type: "image",
-          copyright: load_from_feed_definition([:images, :copyright], image_item),
-          caption_text: load_from_feed_definition([:images, :caption_text], image_item),
-          width: load_from_feed_definition([:images, :width], image_item).to_i,
-          height: load_from_feed_definition([:images, :height], image_item).to_i,
-          source_url: {
-            url: load_from_feed_definition([:images, :source_url], image_item)
-          }
+      {
+        content_type: "image",
+        copyright: load_from_feed_definition([:images, :copyright], json_item),
+        caption_text: load_from_feed_definition([:images, :caption_text], json_item),
+        width: load_from_feed_definition([:images, :width], json_item).to_i,
+        height: load_from_feed_definition([:images, :height], json_item).to_i,
+        source_url: {
+          url: load_from_feed_definition([:images, :source_url], json_item)
         }
-        media << image_data
-      end
-
-      media.compact.flatten
+      }
     end
 end
 
